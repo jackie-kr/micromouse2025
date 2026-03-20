@@ -120,13 +120,13 @@ bool hasWallFront() {
 bool hasWallLeft() {
     // TODO: Replace with actual sensor read from sensor.cpp
     // Example: return sensor.getDistanceLeft() < WALL_THRESHOLD;
-    return analogRead(IR_LEFT_FRONT) >= 200;
+    return analogRead(IR_LEFT_ANGLE) >= 200;
 }
 
 bool hasWallRight() {
     // TODO: Replace with actual sensor read from sensor.cpp
     // Example: return sensor.getDistanceRight() < WALL_THRESHOLD;
-    return analogRead(IR_RIGHT_ANGLE) >= 200
+    return analogRead(IR_RIGHT_ANGLE) >= 200;
 }
 
 bool wallInDirection(int d) {
@@ -292,7 +292,7 @@ LedDisplay display(DISPLAY_IN, DISPLAY_RS, DISPLAY_CLK, DISPLAY_CE, DISPLAY_RST,
 Location m_location;
 Heading m_heading;
 
-Maze maze; 
+Maze m; 
 
 // Helper functions
 void update_map() {
@@ -314,24 +314,24 @@ void update_map() {
   Serial.print(w);
   switch (m_heading) {
     case NORTH:
-      maze.update_wall_state(m_location, NORTH, frontWall ? WALL : EXIT);
-      maze.update_wall_state(m_location, EAST, rightWall ? WALL : EXIT);
-      maze.update_wall_state(m_location, WEST, leftWall ? WALL : EXIT);
+      m.update_wall_state(m_location, NORTH, frontWall ? WALL : EXIT);
+      m.update_wall_state(m_location, EAST, rightWall ? WALL : EXIT);
+      m.update_wall_state(m_location, WEST, leftWall ? WALL : EXIT);
       break;
     case EAST:
-      maze.update_wall_state(m_location, EAST, frontWall ? WALL : EXIT);
-      maze.update_wall_state(m_location, SOUTH, rightWall ? WALL : EXIT);
-      maze.update_wall_state(m_location, NORTH, leftWall ? WALL : EXIT);
+      m.update_wall_state(m_location, EAST, frontWall ? WALL : EXIT);
+      m.update_wall_state(m_location, SOUTH, rightWall ? WALL : EXIT);
+      m.update_wall_state(m_location, NORTH, leftWall ? WALL : EXIT);
       break;
     case SOUTH:
-      maze.update_wall_state(m_location, SOUTH, frontWall ? WALL : EXIT);
-      maze.update_wall_state(m_location, WEST, rightWall ? WALL : EXIT);
-      maze.update_wall_state(m_location, EAST, leftWall ? WALL : EXIT);
+      m.update_wall_state(m_location, SOUTH, frontWall ? WALL : EXIT);
+      m.update_wall_state(m_location, WEST, rightWall ? WALL : EXIT);
+      m.update_wall_state(m_location, EAST, leftWall ? WALL : EXIT);
       break;
     case WEST:
-      maze.update_wall_state(m_location, WEST, frontWall ? WALL : EXIT);
-      maze.update_wall_state(m_location, NORTH, rightWall ? WALL : EXIT);
-      maze.update_wall_state(m_location, SOUTH, leftWall ? WALL : EXIT);
+      m.update_wall_state(m_location, WEST, frontWall ? WALL : EXIT);
+      m.update_wall_state(m_location, NORTH, rightWall ? WALL : EXIT);
+      m.update_wall_state(m_location, SOUTH, leftWall ? WALL : EXIT);
       break;
     default:
       // This is an error. We should handle it.
@@ -368,17 +368,17 @@ void turn_left(){
 void search_maze(){
   m_location = START;
   m_heading = NORTH;
-  maze.initialise();
-  maze.set_goal(Location(3,3)); // TODO: This needs to be set based off of maze size
+  m.initialise();
+  m.set_goal(Location(3,3)); // TODO: This needs to be set based off of maze size
 
-  maze.flood(maze.goal());
-  while (m_location != maze.goal()){
+  m.flood(m.goal());
+  while (m_location != m.goal()){
     m_location = m_location.neighbour(m_heading);
     update_map();
-    maze.flood(maze.goal());
-    unsigned char newHeading = maze.heading_to_smallest(m_location, m_heading);
+    m.flood(m.goal());
+    unsigned char newHeading = m.heading_to_smallest(m_location, m_heading);
     unsigned char hdgChange = (newHeading - m_heading) & 0x3;
-    if (m_location != maze.goal()) {
+    if (m_location != m.goal()) {
       switch (hdgChange) {
         // each of the following actions will finish with the
         // robot moving and at the sensing point ready for the
@@ -547,6 +547,9 @@ void loop() {
   Serial.print("  RF: "); Serial.println(rightFront);
 
   delay(200);
+
+  initMaze();
+  explore();
   /*Serial.print("Calibration: Sys="); Serial.print(system, DEC);
   Serial.print(" Gyro="); Serial.print(gyro, DEC);
   Serial.print(" Accel="); Serial.print(accel, DEC);  Serial.print(" Mag="); Serial.print(mag, DEC);
