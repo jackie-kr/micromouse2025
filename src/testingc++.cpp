@@ -1,1 +1,0 @@
-std::cout << (typeid(int)) << std::endl

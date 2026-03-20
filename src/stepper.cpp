@@ -1,4 +1,4 @@
-#include <Arduino.h>
+/*#include <Arduino.h>
 #include <Stepper.h>
 
 Stepper stepper = Stepper(1);
@@ -31,3 +31,4 @@ void down() {
     stepper.step(-1)
     stepper.delay(10)
 }
+*/

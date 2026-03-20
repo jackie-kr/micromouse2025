@@ -7,6 +7,7 @@
 #include <utility>
 #include <cstdint>
 #include <math.h>
+#include <Adafruit_BNO055.h>
 #include <chassis.h>
 
 Chassis::Chassis(){
@@ -29,8 +30,8 @@ void Chassis::setMotors(Motor *brm, Motor *blm, Motor *frm, Motor *flm){
     backLeftMotor = blm;
     frontLeftMotor = flm;
 }
-void Chassis::setMPU(MPU9250 *imu){
-    mpu = imu;
+void Chassis::setIMU(Adafruit_BNO055 *imu){
+    bno = imu;
 }
 void Chassis::setPID(MiniPID *dPID, MiniPID *aPID, MiniPID *tPID){
     distancePID = dPID;
@@ -131,7 +132,7 @@ void Chassis::turnLeft(){
     backLeftMotor->resetEncoder();
     backRightMotor->resetEncoder();
     do{
-        driveVector(0, -distancePID->getOutput(getRightEnc(), 75 / (M_PI * wheelDiameter) * 360));
+        driveVector(0, distancePID->getOutput(getRightEnc(), 75 / (M_PI * wheelDiameter) * 360));
         Serial.printf("last error: %f cur pos: %f target: %f\n",distancePID->getLastError(), (getLeftEnc()+getRightEnc())/2, 180 / (M_PI * wheelDiameter) * 360);
     }while( abs(distancePID->getLastError()) >= distanceError);
 
@@ -150,7 +151,7 @@ void Chassis::turnRight(){
     backLeftMotor->resetEncoder();
     backRightMotor->resetEncoder();
     do{
-        driveVector(0, distancePID->getOutput(getLeftEnc(), 75 / (M_PI * wheelDiameter) * 360));
+        driveVector(0, -distancePID->getOutput(getLeftEnc(), 75 / (M_PI * wheelDiameter) * 360));
         Serial.printf("last error: %f cur pos: %f target: %f\n",distancePID->getLastError(), (getLeftEnc()+getRightEnc())/2, 180 / (M_PI * wheelDiameter) * 360);
     }while( abs(distancePID->getLastError()) >= distanceError);
 
@@ -271,21 +272,24 @@ double getAngleDifference(double targetAngle, double currentAngle) {
 
 void Chassis::gyroTurnOrientation(double theta) {
     turnTargetTime = 0;
-    mpu->update();
 
-    // Convert target angle to the range [-180, 180]
-    double targetTheta = mpu->getYaw() + theta + 180;
+    // BNO055 euler vector: x = yaw (heading), y = roll, z = pitch
+    imu::Vector<3> euler = bno->getVector(Adafruit_BNO055::VECTOR_EULER);
+    double currentYaw = euler.x();
 
-    //getAngleDifference(targetTheta, mpu->getYaw() + 180);
+    // Target is current yaw plus the requested delta
+    double targetTheta = currentYaw + theta + 180;
 
-    do{
+    do {
+        euler = bno->getVector(Adafruit_BNO055::VECTOR_EULER);
+        currentYaw = euler.x();
 
-        if(mpu->update()){
-
-            driveVector(0, turnPID->getOutput(-getAngleDifference(targetTheta, mpu->getYaw() + 180), 0));
-            Serial.printf("last error: %f cur rot: %f target: %f\n", turnPID->getLastError(), -getAngleDifference(targetTheta, mpu->getYaw() + 180), targetTheta);
-            delayMicroseconds(5000);
-        }
+        driveVector(0, turnPID->getOutput(-getAngleDifference(targetTheta, currentYaw + 180), 0));
+        Serial.printf("last error: %f cur rot: %f target: %f\n",
+                      turnPID->getLastError(),
+                      -getAngleDifference(targetTheta, currentYaw + 180),
+                      targetTheta);
+        delayMicroseconds(5000);
     } while (!turnIsSettled());
 
     frontLeftMotor->stop();
@@ -299,8 +303,8 @@ void Chassis::gyroTurnOrientation(double theta) {
 //set drive train to follow a vector
 void Chassis::driveVector(double velocity, double theta) {
     // Set max velocities between -1 and 1
-    const double targetForwardSpeed = std::clamp(velocity, -1.0, 1.0);
-    const double targetYaw = std::clamp(theta, -1.0, 1.0);
+    const double targetForwardSpeed = std::clamp(velocity, -0.25, 0.25);
+    const double targetYaw = std::clamp(theta, -0.25, 0.25);
 
     // Static variables to store the current motor speeds
     static double currentForwardSpeed = 0.0;
@@ -324,8 +328,8 @@ void Chassis::driveVector(double velocity, double theta) {
     }
 
     // Calculate motor outputs
-    double leftOutput = currentForwardSpeed + currentYaw;
-    double rightOutput = currentForwardSpeed - currentYaw;
+    double leftOutput = currentForwardSpeed - currentYaw;
+    double rightOutput = currentForwardSpeed + currentYaw;
 
     // Normalize outputs if they exceed max velocity
     if (const double maxInputMag = std::max<double>(std::abs(leftOutput), std::abs(rightOutput)); maxInputMag > 1) {
@@ -339,9 +343,9 @@ void Chassis::driveVector(double velocity, double theta) {
     backLeftMotor->setVelocity(leftOutput);
     backLeftMotor->stepVelocityPID();
 
-    frontRightMotor->setVelocity(rightOutput);
+    frontRightMotor->setVelocity(-1*rightOutput);
     frontRightMotor->stepVelocityPID();
-    backRightMotor->setVelocity(rightOutput);
+    backRightMotor->setVelocity(-1*rightOutput);
     backRightMotor->stepVelocityPID();
 }
 
@@ -350,7 +354,7 @@ bool Chassis::turnIsSettled(){
     if(abs(turnPID->getLastError()) >= angleError){
         turnTargetTime = 0;
     }
-    return (500000 <= turnTargetTime) && (abs(turnPID->getLastError()) <= angleError  );
+    return (500000 <= turnTargetTime) && (abs(turnPID->getLastError()) <= angleError);
 }
 
 void Chassis::printPosition(){

@@ -2,7 +2,8 @@
 #include <motor.h>
 #include <MiniPID.h>
 #include <elapsedMillis.h>
-#include "MPU9250.h"
+//#include "MPU9250.h"
+#include <Adafruit_BNO055.h>
 
 class Chassis{
 
@@ -23,7 +24,7 @@ class Chassis{
         MiniPID *distancePID;
         MiniPID *anglePID;
         MiniPID *turnPID;
-        MPU9250 *mpu;
+        Adafruit_BNO055 *bno;
         float distanceError;
         float angleError;
         elapsedMicros turnTargetTime;
@@ -35,7 +36,7 @@ class Chassis{
         void setMotors(Motor *brm, Motor *blm, Motor *frm, Motor *flm);
         void setChassisAttr(float ws, float er, float wt);
         void setPID(MiniPID *dPID, MiniPID *aPID, MiniPID *tPID);
-        void setMPU(MPU9250 *mpu);
+        void setIMU(Adafruit_BNO055* imu);
         void updatePosition();
         void moveToPostion(double x, double y);
         void turnToOrientation(double theta);
@@ -52,4 +53,3 @@ class Chassis{
     
 
 };
-

@@ -6,7 +6,7 @@
 
 #include "LedDisplay.h"
 
-#include "MPU9250.h"
+#include <Adafruit_BNO055.h>
 
 #include <motor.h>
 #include <sensor.h>
@@ -21,7 +21,7 @@ Encoder backRightEnc(ENCODER_BACK_RIGHT_A, ENCODER_BACK_RIGHT_B);
 Encoder frontLeftEnc(ENCODER_FRONT_LEFT_B, ENCODER_FRONT_LEFT_A);
 Encoder backLeftEnc(ENCODER_BACK_LEFT_B , ENCODER_BACK_LEFT_A);
 
-MPU9250 mpu;
+Adafruit_BNO055 myIMU;
 
 Sensor leftAngleIR;
 Sensor rightAngleIR;
@@ -117,7 +117,7 @@ void turn_left(){
   // chassis.moveForwardTile();
   delay(200);
   for(int i = 0; i < 100; i++){
-     mpu.update();
+     //mpu.update();
   }
   chassis.gyroTurnOrientation(-90);
   m_heading = left_from(m_heading);
@@ -165,7 +165,10 @@ void setup() {
   Serial.begin(115200);
   Wire1.begin();
 
-  mpu.setup(0x68, MPU9250Setting(), Wire1);
+  //mpu.setup(0x68, MPU9250Setting(), Wire1);
+  myIMU = Adafruit_BNO055(55, 0x28, &Wire1);
+  myIMU.begin();
+  myIMU.setExtCrystalUse(true);
 
   display.begin();
   display.home();
@@ -213,26 +216,26 @@ void setup() {
 
     //pinMode(BUZZER, OUTPUT);
 
-    // leftAngleIR.setSensorPins(EMITTER_LEFT_HALF, IR_LEFT_ANGLE);
-    // leftAngleIR.initSensor();
-    // leftFrontIR.setSensorPins(EMITTER_LEFT_HALF, IR_LEFT_FRONT);
-    // leftFrontIR.initSensor();
-    // rightAngleIR.setSensorPins(EMITTER_RIGHT_HALF, IR_RIGHT_ANGLE);
-    // rightAngleIR.initSensor();
+    leftAngleIR.setSensorPins(EMITTER_LEFT_HALF, IR_LEFT_ANGLE);
+    leftAngleIR.initSensor();
+    leftFrontIR.setSensorPins(EMITTER_LEFT_HALF, IR_LEFT_FRONT);
+    leftFrontIR.initSensor();
+    rightAngleIR.setSensorPins(EMITTER_RIGHT_HALF, IR_RIGHT_ANGLE);
+    rightAngleIR.initSensor();
     rightFrontIR.setSensorPins(EMITTER_RIGHT_HALF, IR_RIGHT_FRONT);
     rightFrontIR.initSensor();
 
     chassis.setMotors(&backRightMotor, &backLeftMotor, &frontRightMotor, &frontLeftMotor);
     chassis.setChassisAttr(WHEEL_DIAMETER, ENCODER_TICKS_PER_WHEEL_ROTATION, WHEEL_TRACK);
     chassis.setPID(&distancePID, &anglePID, &turnPID);
-    chassis.setMPU(&mpu);
+    chassis.setIMU(&myIMU);
     chassis.setError(7, 4);
 
     // Calibrate the MPU9250
     // delay(2000);
     // mpu.verbose(true); //Debugging purposes
-    mpu.selectFilter(QuatFilterSel::MAHONY);
-    mpu.setFilterIterations(20);
+    //mpu.selectFilter(QuatFilterSel::MAHONY);
+    // mpu.setFilterIterations(20);
     // Serial.print("accel setup\n");
     // mpu.calibrateAccelGyro();
     // frontRightMotor.setRawPWM(100, false);
@@ -247,30 +250,99 @@ void setup() {
     // frontLeftMotor.stop();
   
     // Set biases
-    mpu.setAccBias(-2.79, -27.39, -12.07);
-    mpu.setGyroBias(3.41, -0.01, -0.35);
-    mpu.setMagBias(-10.65, -3.55, -514.83);
-    mpu.setMagScale(1.05, 0.99, 0.96);
+    //mpu.setAccBias(-2.79, -27.39, -12.07);
+    //mpu.setGyroBias(3.41, -0.01, -0.35);
+    //mpu.setMagBias(-10.65, -3.55, -514.83);
+    //mpu.setMagScale(1.05, 0.99, 0.96);
     turnPID.setOutputLimits(0.4);
+    //chassis.moveForwardTile();
+   //pinMode(2, OUTPUT);
 }
 
 // Main loop
 void loop() {
+  imu::Vector<3> acc = myIMU.getVector(Adafruit_BNO055::VECTOR_ACCELEROMETER);
+  imu::Vector<3> gyroVal = myIMU.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE);
+
+  uint8_t system, gyro, accel, mag = 0;
+  myIMU.getCalibration(&system, &gyro, &accel, &mag);
+  // ---- LEFT SIDE ----
+  digitalWrite(EMITTER_LEFT_HALF, LOW);
+  delayMicroseconds(200);
+  int leftAngle_ambient = analogRead(IR_LEFT_ANGLE);
+  int leftFront_ambient = analogRead(IR_LEFT_FRONT);
+
+  digitalWrite(EMITTER_LEFT_HALF, HIGH);
+  delayMicroseconds(200);
+  int leftAngle_active = analogRead(IR_LEFT_ANGLE);
+  int leftFront_active = analogRead(IR_LEFT_FRONT);
+
+  int leftAngle = leftAngle_active - leftAngle_ambient;
+  int leftFront = leftFront_active - leftFront_ambient;
+
+  digitalWrite(EMITTER_LEFT_HALF, LOW);
+
+  // ---- RIGHT SIDE ----
+  digitalWrite(EMITTER_RIGHT_HALF, LOW);
+  delayMicroseconds(200);
+  int rightAngle_ambient = analogRead(IR_RIGHT_ANGLE);
+  int rightFront_ambient = analogRead(IR_RIGHT_FRONT);
+
+  digitalWrite(EMITTER_RIGHT_HALF, HIGH);
+  delayMicroseconds(200);
+  int rightAngle_active = analogRead(IR_RIGHT_ANGLE);
+  int rightFront_active = analogRead(IR_RIGHT_FRONT);
+
+  int rightAngle = rightAngle_active - rightAngle_ambient;
+  int rightFront = rightFront_active - rightFront_ambient;
+
+  digitalWrite(EMITTER_RIGHT_HALF, LOW);
+
+  // ---- PRINT ----
+  Serial.print("LA: "); Serial.print(leftAngle);
+  Serial.print("  LF: "); Serial.print(leftFront);
+  Serial.print("  RA: "); Serial.print(rightAngle);
+  Serial.print("  RF: "); Serial.println(rightFront);
+
+  delay(200);
+  /*Serial.print("Calibration: Sys="); Serial.print(system, DEC);
+  Serial.print(" Gyro="); Serial.print(gyro, DEC);
+  Serial.print(" Accel="); Serial.print(accel, DEC);  Serial.print(" Mag="); Serial.print(mag, DEC);
+  Serial.print("Accel X: "); Serial.print(acc.x());
+  Serial.print(" Accel Y: "); Serial.print(acc.y());
+  Serial.print(" Accel Z: "); Serial.print(acc.z());
+  Serial.print("Gyro X: "); Serial.print(gyroVal.x());
+  Serial.print(" Gyro Y: "); Serial.print(gyroVal.y());
+  Serial.print(" Gyro Z: "); Serial.println(gyroVal.z());*/
+
+  /*chassis.turnRight();
+  delay(1000);
+  chassis.turnLeft();
+  delay(1000);
+  chassis.moveForwardTile();
+  delay(1000);*/
+  //digitalWrite(2, HIGH);
+  /*
   // Read button states (HIGH when pressed due to pull-down configuration)
   bool button1Pressed = digitalRead(BUTTON_1) == HIGH;
   bool button2Pressed = digitalRead(BUTTON_2) == HIGH;
 
+  display.print("Runs");
+  
   digitalWrite(EMITTER_RIGHT_HALF, HIGH);
   Serial.println(analogRead(IR_RIGHT_FRONT));
   digitalWrite(EMITTER_RIGHT_HALF, LOW);
   display.home();
 
+  Serial.println(leftFrontIR.getDistance());
+
   if (button1Pressed) {
-    display.print("FWD ");
+    //display.print("FWD ");
     frontRightMotor.setRawPWM(100, false);
     frontLeftMotor.setRawPWM(100, false);
     backRightMotor.setRawPWM(100, false); 
     backLeftMotor.setRawPWM(100, false);
+    display.print(backRightMotor.getEncoder());
   } else if (button2Pressed) {
     display.print("REV ");
     frontRightMotor.setRawPWM(100, true);
@@ -279,14 +351,34 @@ void loop() {
     backLeftMotor.setRawPWM(100, true);
   } else {
     mpu.update();
-    frontRightMotor.setRawPWM(0, false);
+    frontRightMotor.setRawPWM(100, false);
     frontLeftMotor.setRawPWM(0, false);
-    backRightMotor.setRawPWM(0, false); 
+    backRightMotor.setRawPWM(100, false); 
     backLeftMotor.setRawPWM(0, false);
     display.print(String(mpu.getYaw(), 2).substring(0, 4));
-  }
+    
+  }*/
 
-  delay(200); // Small delay to debounce and prevent flicker
+  //Serial.println("encoder: " + String(backLeftMotor.getEncoder()));
+  //search_maze();
+  /*delay(200); // Small delay to debounce and prevent flicker
+
+  //Serial.println("Left Front IR: " + String(leftFrontIR.getDistance()));
+  //Serial.println("Right Front IR: " + String(rightFrontIR.getDistance()));
+  delay(200);
+  frontLeftMotor.setRawPWM(100, true);
+  //backLeftMotor.setRawPWM(100, true);
+  backRightMotor.setRawPWM(100, true);
+  frontRightMotor.setRawPWM(100, true);
+  delay(2000);
+
+  
+
+  frontLeftMotor.stop();
+  //backLeftMotor.stop();
+  backRightMotor.stop();
+  frontRightMotor.stop();
+  delay(2000);*/
 
   // // Use IR to start the mouse
   // digitalWrite(EMITTER_LEFT_HALF, HIGH);
@@ -352,4 +444,3 @@ void loop() {
         
 
 }
-

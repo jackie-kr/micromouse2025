@@ -24,12 +24,15 @@ float Sensor::getDistance(){
 void Sensor::updateDistance(){
     //if(offTime >= resetTime){
         int initReading = analogRead(reciever_pin);
+        Serial.println(initReading);
 
         digitalWrite(emitter_pin, HIGH);
+        delayMicroseconds(200);
 
         int readAvg = 0;
         for(int i = 0; i < readCount; i++){
             readAvg += analogRead(reciever_pin);
+            Serial.println(readAvg);
         }
 
         digitalWrite(emitter_pin, LOW);
