@@ -343,7 +343,7 @@ void Chassis::driveVector(double velocity, double theta) {
     backLeftMotor->setVelocity(leftOutput);
     backLeftMotor->stepVelocityPID();
 
-    frontRightMotor->setVelocity(-1*rightOutput);
+    frontRightMotor->setVelocity(-0.5*rightOutput);
     frontRightMotor->stepVelocityPID();
     backRightMotor->setVelocity(-1*rightOutput);
     backRightMotor->stepVelocityPID();

@@ -218,12 +218,16 @@ void setup() {
 
     leftAngleIR.setSensorPins(EMITTER_LEFT_HALF, IR_LEFT_ANGLE);
     leftAngleIR.initSensor();
+    leftAngleIR.setCalibration(251, 950);
     leftFrontIR.setSensorPins(EMITTER_LEFT_HALF, IR_LEFT_FRONT);
     leftFrontIR.initSensor();
+    leftFrontIR.setCalibration(63, 70);
     rightAngleIR.setSensorPins(EMITTER_RIGHT_HALF, IR_RIGHT_ANGLE);
     rightAngleIR.initSensor();
+    rightAngleIR.setCalibration(46, 970);
     rightFrontIR.setSensorPins(EMITTER_RIGHT_HALF, IR_RIGHT_FRONT);
     rightFrontIR.initSensor();
+    rightFrontIR.setCalibration(0, 183);
 
     chassis.setMotors(&backRightMotor, &backLeftMotor, &frontRightMotor, &frontLeftMotor);
     chassis.setChassisAttr(WHEEL_DIAMETER, ENCODER_TICKS_PER_WHEEL_ROTATION, WHEEL_TRACK);
@@ -257,6 +261,7 @@ void setup() {
     turnPID.setOutputLimits(0.4);
     //chassis.moveForwardTile();
    //pinMode(2, OUTPUT);
+   delay(5000);
 }
 
 // Main loop
@@ -266,6 +271,7 @@ void loop() {
 
   uint8_t system, gyro, accel, mag = 0;
   myIMU.getCalibration(&system, &gyro, &accel, &mag);
+  /*
   // ---- LEFT SIDE ----
   digitalWrite(EMITTER_LEFT_HALF, LOW);
   delayMicroseconds(200);
@@ -305,6 +311,37 @@ void loop() {
   Serial.print("  RF: "); Serial.println(rightFront);
 
   delay(200);
+  */
+  Serial.print("LA: "); Serial.print(leftAngleIR.getNormalizedDistance());
+  Serial.print("  LF: "); Serial.print(leftFrontIR.getNormalizedDistance());
+  Serial.print("  RA: "); Serial.print(rightAngleIR.getNormalizedDistance());
+  Serial.print("  RF: "); Serial.println(rightFrontIR.getNormalizedDistance());
+  Serial.print("LA raw: "); Serial.print(leftAngleIR.getDistance());
+  Serial.print("  LF raw: "); Serial.print(leftFrontIR.getDistance());
+  Serial.print("  RA raw: "); Serial.print(rightAngleIR.getDistance());
+  Serial.print("  RF raw: "); Serial.println(rightFrontIR.getDistance());
+  delay(200);
+
+  /*display.print("AAAA");
+    chassis.moveForwardTile();
+    delay(500);
+    chassis.moveForwardTile();
+    delay(500);
+    chassis.turnRight();
+    delay(500);
+    chassis.moveForwardTile();
+    delay(500);
+    chassis.moveForwardTile();
+    delay(500);
+    chassis.turnLeft();
+    delay(500);
+    chassis.moveForwardTile();
+    delay(500);
+    chassis.moveForwardTile();
+    delay(500);
+    chassis.moveForwardTile();
+    delay(500);*/
+
   /*Serial.print("Calibration: Sys="); Serial.print(system, DEC);
   Serial.print(" Gyro="); Serial.print(gyro, DEC);
   Serial.print(" Accel="); Serial.print(accel, DEC);  Serial.print(" Mag="); Serial.print(mag, DEC);

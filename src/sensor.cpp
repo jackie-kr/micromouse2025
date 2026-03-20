@@ -9,6 +9,16 @@ void Sensor::setSensorPins(uint16_t ep, uint16_t rp){
     reciever_pin = rp;
 }
 
+void Sensor::setCalibration(float minVal, float maxVal){
+    calibMin = minVal;
+    calibMax = maxVal;
+}
+
+float Sensor::getNormalizedDistance(){
+    float raw = getDistance();
+    return (raw - calibMin) / (calibMax - calibMin);
+}
+
 void Sensor::initSensor(){
     pinMode(emitter_pin, OUTPUT);
     pinMode(reciever_pin, INPUT);
@@ -24,7 +34,7 @@ float Sensor::getDistance(){
 void Sensor::updateDistance(){
     //if(offTime >= resetTime){
         int initReading = analogRead(reciever_pin);
-        Serial.println(initReading);
+        //Serial.println(initReading);
 
         digitalWrite(emitter_pin, HIGH);
         delayMicroseconds(200);
@@ -32,7 +42,7 @@ void Sensor::updateDistance(){
         int readAvg = 0;
         for(int i = 0; i < readCount; i++){
             readAvg += analogRead(reciever_pin);
-            Serial.println(readAvg);
+            //Serial.println(readAvg);
         }
 
         digitalWrite(emitter_pin, LOW);
