@@ -16,18 +16,263 @@
 #include "chassis.h"
 #include "maze.h"
 
-Encoder frontRightEnc(ENCODER_FRONT_RIGHT_B, ENCODER_FRONT_RIGHT_A);
-Encoder backRightEnc(ENCODER_BACK_RIGHT_A, ENCODER_BACK_RIGHT_B);
-Encoder frontLeftEnc(ENCODER_FRONT_LEFT_B, ENCODER_FRONT_LEFT_A);
-Encoder backLeftEnc(ENCODER_BACK_LEFT_B , ENCODER_BACK_LEFT_A);
-
-Adafruit_BNO055 myIMU;
+#include <iostream>
+#include <stack>
+#include <cmath>
 
 Sensor leftAngleIR;
 Sensor rightAngleIR;
 
 Sensor leftFrontIR;
 Sensor rightFrontIR;
+
+using namespace std;
+
+// ─────────────────────────────────────────
+//  Constants
+// ─────────────────────────────────────────
+#define MAZE_SIZE 16
+
+// Directions: 0=North, 1=East, 2=South, 3=West
+int dr[] = { 1,  0, -1,  0};
+int dc[] = { 0,  1,  0, -1};
+
+// ─────────────────────────────────────────
+//  Maze Grid & Mouse State
+// ─────────────────────────────────────────
+int maze[MAZE_SIZE][MAZE_SIZE];
+
+int mouseR   = 0;
+int mouseC   = 0;
+int facing   = 0;   // 0=North, 1=East, 2=South, 3=West
+int cameFrom = -1;
+
+stack<int> pathStack;
+
+// ─────────────────────────────────────────
+//  Global Chassis Instance
+//  Configure these with your actual hardware values
+// ─────────────────────────────────────────
+Chassis chassis;
+
+// ─────────────────────────────────────────
+//  Helpers
+// ─────────────────────────────────────────
+bool isGoal(int r, int c) {
+    return (r == 7 || r == 8) && (c == 7 || c == 8);
+}
+
+bool inBounds(int r, int c) {
+    return r >= 0 && r < MAZE_SIZE && c >= 0 && c < MAZE_SIZE;
+}
+
+int opposite(int d) { return (d + 2) % 4; }
+
+// ─────────────────────────────────────────
+//  Maze Initialization
+// ─────────────────────────────────────────
+void initMaze() {
+    for (int i = 0; i < MAZE_SIZE; i++)
+        for (int j = 0; j < MAZE_SIZE; j++)
+            maze[i][j] = -1;
+}
+
+// ─────────────────────────────────────────
+//  Physical Movement via Chassis
+//  Replaces API::moveForward(), API::turnLeft(), API::turnRight()
+// ─────────────────────────────────────────
+void physicalMoveForward() {
+    chassis.moveForwardTile();  // moves exactly one cell
+}
+
+void physicalTurnLeft() {
+    chassis.turnLeft();         // 90° left turn
+    facing = (facing + 3) % 4;
+}
+
+void physicalTurnRight() {
+    chassis.turnRight();        // 90° right turn
+    facing = (facing + 1) % 4;
+}
+
+// ─────────────────────────────────────────
+//  Facing Utilities
+// ─────────────────────────────────────────
+void faceDirection(int target) {
+    while (facing != target) {
+        int diff = (target - facing + 4) % 4;
+        if (diff == 1) { physicalTurnRight(); }
+        else{
+          physicalTurnLeft();  
+        }
+    }
+}
+
+// ─────────────────────────────────────────
+//  Wall Sensing via Sensors
+//  Replace hasWallFront/Left/Right with your actual sensor calls
+//  e.g. sensor readings from sensor.cpp (IR or ToF distance sensors)
+// ─────────────────────────────────────────
+bool hasWallFront() {
+    // TODO: Replace with actual sensor read from sensor.cpp
+    // Example: return sensor.getDistanceFront() < WALL_THRESHOLD;
+    double d = leftFrontIR.getDistance();
+    Serial.print("Left Front IR: " + String(d) + ": ");
+    return (d >= 300.0) ? 1 : 0;
+}
+
+bool hasWallLeft() {
+    // TODO: Replace with actual sensor read from sensor.cpp
+    // Example: return sensor.getDistanceLeft() < WALL_THRESHOLD;
+    double d = leftAngleIR.getDistance();
+    Serial.print("Left Angle IR: " + String(d) + ": ");
+    return (d >= 157.0) ? 1 : 0;
+}
+
+bool hasWallRight() {
+    // TODO: Replace with actual sensor read from sensor.cpp
+    // Example: return sensor.getDistanceRight() < WALL_THRESHOLD;
+    double d = rightAngleIR.getDistance();
+    Serial.print("Right Angle IR: " + String(d) + ": ");
+    return (d >= 52.0) ? 1 : 0;
+}
+
+bool wallInDirection(int d) {
+    int diff = (d - facing + 4) % 4;
+    switch (diff) {
+        case 0: return hasWallFront();
+        case 1: return hasWallRight();
+        case 3: return hasWallLeft();
+        case 2: {
+            // Check behind: turn around, sense, turn back
+            physicalTurnRight(); physicalTurnRight();
+            bool w = hasWallFront();
+            physicalTurnRight(); physicalTurnRight();
+            return w;
+        }
+    }
+    return true;
+}
+
+// ─────────────────────────────────────────
+//  Path Scanning
+// ─────────────────────────────────────────
+int scanPaths(int r, int c, int from) {
+    int count = 0;
+    for (int d = 0; d < 4; d++) {
+        if (d == from) continue;
+        if (!wallInDirection(d)) count++;
+    }
+    return count;
+}
+
+// ─────────────────────────────────────────
+//  Distance to goal center (7.5, 7.5)
+// ─────────────────────────────────────────
+float distToGoal(int r, int c) {
+    float ddr = r - 7.5f;
+    float ddc = c - 7.5f;
+    return ddr * ddr + ddc * ddc;
+}
+
+// ─────────────────────────────────────────
+//  Exploration Algorithm
+// ─────────────────────────────────────────
+void explore() {
+    int r = mouseR, c = mouseC;
+    int from = cameFrom;
+
+    while (!isGoal(r, c)) {
+
+        // 1. Scan if unvisited
+        if (maze[r][c] == -1) {
+            int paths = scanPaths(r, c, from);
+            maze[r][c] = paths;
+        }
+
+        // 2. Collect unvisited neighbors, pick closest to goal
+        int chosen = -1;
+        float bestDist = 1e9;
+        int checkOrder[] = {
+            (facing + 3) % 4,  // Left
+            facing,            // Forward
+            (facing + 1) % 4   // Right
+        };
+
+        for (int i = 0; i < 3; i++) {
+            int d = checkOrder[i];
+            if (d == from) continue;
+            int nr = r + dr[d];
+            int nc = c + dc[d];
+            if (inBounds(nr, nc) && !wallInDirection(d) && maze[nr][nc] == -1) {
+                float dist = distToGoal(nr, nc);
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    chosen = d;
+                }
+            }
+        }
+
+        // 3. Found unvisited neighbor — move there
+        if (chosen != -1) {
+            pathStack.push(opposite(chosen));
+            faceDirection(chosen);
+            physicalMoveForward();      // <-- Physical movement
+            r     += dr[chosen];
+            c     += dc[chosen];
+            from   = opposite(chosen);
+            facing = chosen;
+            continue;
+        }
+
+        // 4. Dead end — backtrack using stack
+        if (pathStack.empty()) {
+            cerr << "No path to goal found." << endl;
+            return;
+        }
+
+        int backDir = pathStack.top();
+        pathStack.pop();
+
+        faceDirection(backDir);
+        physicalMoveForward();          // <-- Physical backtrack movement
+
+        facing = backDir;
+        from   = opposite(backDir);
+        r += dr[backDir];
+        c += dc[backDir];
+
+        if (maze[r][c] > 0) {
+            maze[r][c]--;
+        }
+    }
+
+    cerr << "Goal reached at (" << r << "," << c << ")!" << endl;
+}
+
+// ─────────────────────────────────────────
+//  Entry Point
+// ─────────────────────────────────────────
+/*int main() {
+    // ── Configure chassis with your hardware values ──
+    // chassis.setChassisAttr(wheelDiameter, encRatio, wheelTrack);
+    // chassis.setMotors(&backRightMotor, &backLeftMotor, &frontRightMotor, &frontLeftMotor);
+    // chassis.setPID(&distPID, &anglePID, &turnPID);
+    // chassis.setError(distanceError, angleError);
+
+    cerr << "Micromouse starting..." << endl;
+    initMaze();
+    explore();
+    return 0;
+}*/
+
+//Encoder frontRightEnc(ENCODER_FRONT_RIGHT_B, ENCODER_FRONT_RIGHT_A);
+Encoder frontRightEnc(ENCODER_BACK_RIGHT_B, ENCODER_BACK_RIGHT_A); // shared with back right
+Encoder backRightEnc(ENCODER_FRONT_RIGHT_B, ENCODER_FRONT_RIGHT_A);  // its own working encoder
+Encoder frontLeftEnc(ENCODER_FRONT_LEFT_B, ENCODER_FRONT_LEFT_A);  // its own working encoder
+Encoder backLeftEnc(ENCODER_BACK_LEFT_B, ENCODER_BACK_LEFT_A);     // its own working encoder
+
+Adafruit_BNO055 myIMU;
 
 Motor frontLeftMotor;
 Motor frontRightMotor;
@@ -39,7 +284,7 @@ MiniPID frontRightPID(MOTOR_VEL_PID_P, MOTOR_VEL_PID_I, MOTOR_VEL_PID_D, MOTOR_V
 MiniPID backLeftPID(MOTOR_VEL_PID_P, MOTOR_VEL_PID_I, MOTOR_VEL_PID_D, MOTOR_VEL_PID_F);
 MiniPID backRightPID(MOTOR_VEL_PID_P, MOTOR_VEL_PID_I, MOTOR_VEL_PID_D, MOTOR_VEL_PID_F);
 
-Chassis chassis;
+//Chassis chassis;
 
 MiniPID anglePID(0,000001,0,0);
 MiniPID turnPID(0.01,0.0000001,0.15);
@@ -47,12 +292,13 @@ MiniPID distancePID(0.001,0.00000001,0);
 
 LedDisplay display(DISPLAY_IN, DISPLAY_RS, DISPLAY_CLK, DISPLAY_CE, DISPLAY_RST, DISPLAY_LENGTH);
 
-Location m_location;
-Heading m_heading;
+//Location m_location;
+//Heading m_heading;
 
-Maze maze; 
+//Maze m; 
 
 // Helper functions
+/*
 void update_map() {
   digitalWrite(EMITTER_LEFT_HALF, HIGH);
   digitalWrite(EMITTER_RIGHT_HALF, HIGH);
@@ -72,24 +318,24 @@ void update_map() {
   Serial.print(w);
   switch (m_heading) {
     case NORTH:
-      maze.update_wall_state(m_location, NORTH, frontWall ? WALL : EXIT);
-      maze.update_wall_state(m_location, EAST, rightWall ? WALL : EXIT);
-      maze.update_wall_state(m_location, WEST, leftWall ? WALL : EXIT);
+      m.update_wall_state(m_location, NORTH, frontWall ? WALL : EXIT);
+      m.update_wall_state(m_location, EAST, rightWall ? WALL : EXIT);
+      m.update_wall_state(m_location, WEST, leftWall ? WALL : EXIT);
       break;
     case EAST:
-      maze.update_wall_state(m_location, EAST, frontWall ? WALL : EXIT);
-      maze.update_wall_state(m_location, SOUTH, rightWall ? WALL : EXIT);
-      maze.update_wall_state(m_location, NORTH, leftWall ? WALL : EXIT);
+      m.update_wall_state(m_location, EAST, frontWall ? WALL : EXIT);
+      m.update_wall_state(m_location, SOUTH, rightWall ? WALL : EXIT);
+      m.update_wall_state(m_location, NORTH, leftWall ? WALL : EXIT);
       break;
     case SOUTH:
-      maze.update_wall_state(m_location, SOUTH, frontWall ? WALL : EXIT);
-      maze.update_wall_state(m_location, WEST, rightWall ? WALL : EXIT);
-      maze.update_wall_state(m_location, EAST, leftWall ? WALL : EXIT);
+      m.update_wall_state(m_location, SOUTH, frontWall ? WALL : EXIT);
+      m.update_wall_state(m_location, WEST, rightWall ? WALL : EXIT);
+      m.update_wall_state(m_location, EAST, leftWall ? WALL : EXIT);
       break;
     case WEST:
-      maze.update_wall_state(m_location, WEST, frontWall ? WALL : EXIT);
-      maze.update_wall_state(m_location, NORTH, rightWall ? WALL : EXIT);
-      maze.update_wall_state(m_location, SOUTH, leftWall ? WALL : EXIT);
+      m.update_wall_state(m_location, WEST, frontWall ? WALL : EXIT);
+      m.update_wall_state(m_location, NORTH, rightWall ? WALL : EXIT);
+      m.update_wall_state(m_location, SOUTH, leftWall ? WALL : EXIT);
       break;
     default:
       // This is an error. We should handle it.
@@ -126,17 +372,17 @@ void turn_left(){
 void search_maze(){
   m_location = START;
   m_heading = NORTH;
-  maze.initialise();
-  maze.set_goal(Location(3,3)); // TODO: This needs to be set based off of maze size
+  m.initialise();
+  m.set_goal(Location(3,3)); // TODO: This needs to be set based off of maze size
 
-  maze.flood(maze.goal());
-  while (m_location != maze.goal()){
+  m.flood(m.goal());
+  while (m_location != m.goal()){
     m_location = m_location.neighbour(m_heading);
     update_map();
-    maze.flood(maze.goal());
-    unsigned char newHeading = maze.heading_to_smallest(m_location, m_heading);
+    m.flood(m.goal());
+    unsigned char newHeading = m.heading_to_smallest(m_location, m_heading);
     unsigned char hdgChange = (newHeading - m_heading) & 0x3;
-    if (m_location != maze.goal()) {
+    if (m_location != m.goal()) {
       switch (hdgChange) {
         // each of the following actions will finish with the
         // robot moving and at the sensing point ready for the
@@ -156,7 +402,7 @@ void search_maze(){
       }
     }
   }
-}
+}*/
 
 // Setup the mouse
 void setup() {
@@ -261,16 +507,30 @@ void setup() {
     turnPID.setOutputLimits(0.4);
     //chassis.moveForwardTile();
    //pinMode(2, OUTPUT);
-   delay(5000);
+   delay(500);
 }
 
 // Main loop
 void loop() {
-  imu::Vector<3> acc = myIMU.getVector(Adafruit_BNO055::VECTOR_ACCELEROMETER);
-  imu::Vector<3> gyroVal = myIMU.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE);
-
-  uint8_t system, gyro, accel, mag = 0;
-  myIMU.getCalibration(&system, &gyro, &accel, &mag);
+  /*Serial.print("Left Angle IR: " + String(leftAngleIR.getDistance()));
+  Serial.print("Left Front IR: " + String(leftFrontIR.getDistance()));
+  Serial.print("Right Angle IR: " + String(rightAngleIR.getDistance()));
+  Serial.println("Right Front IR: " + String(rightFrontIR.getDistance()));*/
+  /*Serial.print(hasWallFront());
+  Serial.print(",");
+  Serial.print(hasWallLeft());
+  Serial.print(",");
+  Serial.print(hasWallRight());
+  Serial.println(",");
+  delay(200);*/
+  //chassis.gyroTurnOrientation(90);
+  //delay(500);
+  //chassis.gyroTurnOrientation(-90);
+  //delay(500);
+  //chassis.moveForwardTile();
+  //delay(500);
+  initMaze();
+  explore();
   /*
   // ---- LEFT SIDE ----
   digitalWrite(EMITTER_LEFT_HALF, LOW);
@@ -311,38 +571,10 @@ void loop() {
   Serial.print("  RF: "); Serial.println(rightFront);
 
   delay(200);
-  */
-  Serial.print("LA: "); Serial.print(leftAngleIR.getNormalizedDistance());
-  Serial.print("  LF: "); Serial.print(leftFrontIR.getNormalizedDistance());
-  Serial.print("  RA: "); Serial.print(rightAngleIR.getNormalizedDistance());
-  Serial.print("  RF: "); Serial.println(rightFrontIR.getNormalizedDistance());
-  Serial.print("LA raw: "); Serial.print(leftAngleIR.getDistance());
-  Serial.print("  LF raw: "); Serial.print(leftFrontIR.getDistance());
-  Serial.print("  RA raw: "); Serial.print(rightAngleIR.getDistance());
-  Serial.print("  RF raw: "); Serial.println(rightFrontIR.getDistance());
-  delay(200);
 
-  /*display.print("AAAA");
-    chassis.moveForwardTile();
-    delay(500);
-    chassis.moveForwardTile();
-    delay(500);
-    chassis.turnRight();
-    delay(500);
-    chassis.moveForwardTile();
-    delay(500);
-    chassis.moveForwardTile();
-    delay(500);
-    chassis.turnLeft();
-    delay(500);
-    chassis.moveForwardTile();
-    delay(500);
-    chassis.moveForwardTile();
-    delay(500);
-    chassis.moveForwardTile();
-    delay(500);*/
-
-  /*Serial.print("Calibration: Sys="); Serial.print(system, DEC);
+  initMaze();
+  explore();
+  Serial.print("Calibration: Sys="); Serial.print(system, DEC);
   Serial.print(" Gyro="); Serial.print(gyro, DEC);
   Serial.print(" Accel="); Serial.print(accel, DEC);  Serial.print(" Mag="); Serial.print(mag, DEC);
   Serial.print("Accel X: "); Serial.print(acc.x());

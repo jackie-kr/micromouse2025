@@ -303,15 +303,15 @@ void Chassis::gyroTurnOrientation(double theta) {
 //set drive train to follow a vector
 void Chassis::driveVector(double velocity, double theta) {
     // Set max velocities between -1 and 1
-    const double targetForwardSpeed = std::clamp(velocity, -0.25, 0.25);
-    const double targetYaw = std::clamp(theta, -0.25, 0.25);
+    const double targetForwardSpeed = std::clamp(velocity, -0.10, 0.10);
+    const double targetYaw = std::clamp(theta, -0.10, 0.10);
 
     // Static variables to store the current motor speeds
     static double currentForwardSpeed = 0.0;
     static double currentYaw = 0.0;
 
     // Define ramp-up rate (adjust as needed)
-    const double rampRate = 0.005; // Increment per call
+    const double rampRate = 0.003; // Increment per call
 
     // Gradually adjust forward speed
     if (currentForwardSpeed < targetForwardSpeed) {
@@ -338,15 +338,18 @@ void Chassis::driveVector(double velocity, double theta) {
     }
 
     // Set motor velocities
-    frontLeftMotor->setVelocity(leftOutput);
+    frontLeftMotor->setVelocity(2.5*leftOutput);
     frontLeftMotor->stepVelocityPID();
-    backLeftMotor->setVelocity(leftOutput);
+    backLeftMotor->setVelocity(2.5*leftOutput);
     backLeftMotor->stepVelocityPID();
 
-    frontRightMotor->setVelocity(-0.5*rightOutput);
+    frontRightMotor->setVelocity(-1*rightOutput);
     frontRightMotor->stepVelocityPID();
     backRightMotor->setVelocity(-1*rightOutput);
     backRightMotor->stepVelocityPID();
+    //frontRightMotor->setRawPWM(abs(-1 * rightOutput) * 255, rightOutput > 0);
+    //backRightMotor->setVelocity(-1*rightOutput);
+    //backRightMotor->stepVelocityPID();
 }
 
 bool Chassis::turnIsSettled(){
